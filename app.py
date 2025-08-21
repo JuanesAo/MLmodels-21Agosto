@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from datetime import datetime, timedelta
-from io import StringIO
 
 # --------------------------
 # Configuración de la página
@@ -18,7 +17,7 @@ st.title("🏟️ EDA Interactivo con Datos Sintéticos de Deportes")
 st.caption("Genera un dataset sintético (cuantitativo, cualitativo o mixto), elige columnas (máx. 6) y explora visualmente con gráficos y estadísticas.")
 
 # -----------------------------------------------------
-# Definición del "esquema" de columnas y generadores
+# Catálogos y generadores
 # -----------------------------------------------------
 SPORTS = ["Fútbol", "Baloncesto", "Tenis", "Atletismo", "Natación", "Ciclismo"]
 TEAMS = ["Leones", "Tiburones", "Águilas", "Tigres", "Toros", "Pumas"]
@@ -26,11 +25,9 @@ POSITIONS = ["Portero", "Defensa", "Mediocampo", "Delantero", "Base", "Alero", "
 GENDERS = ["M", "F"]
 COUNTRIES = ["Colombia", "Argentina", "Brasil", "España", "Francia", "USA", "México"]
 
-# Definimos un catálogo de posibles columnas con su tipo y función generadora
 def gen_fecha(n, seed=None):
-    rng = np.random.default_rng(seed)
+    _ = np.random.default_rng(seed)
     start = datetime(2024, 1, 1)
-    # Serie temporal diaria con algún jitter de días
     return [start + timedelta(days=int(i)) for i in range(n)]
 
 def gen_deporte(n, seed=None):
@@ -58,23 +55,22 @@ def gen_velocidad(n, seed=None):
     rng = np.random.default_rng(seed); return np.clip(rng.normal(28, 4, size=n).round(2), 10, 40)  # km/h
 
 def gen_fc(n, seed=None):
-    rng = np.random.default_rng(seed); return np.clip(rng.normal(145, 12, size=n).round(0), 90, 200)  # frecuencia cardiaca
+    rng = np.random.default_rng(seed); return np.clip(rng.normal(145, 12, size=n).round(0), 90, 200)  # bpm
 
 def gen_goles(n, seed=None):
-    rng = np.random.default_rng(seed); base = rng.poisson(0.6, size=n); return base
+    rng = np.random.default_rng(seed); return rng.poisson(0.6, size=n)
 
 def gen_asistencias(n, seed=None):
     rng = np.random.default_rng(seed); return rng.poisson(0.8, size=n)
 
 def gen_injury(n, seed=None):
-    rng = np.random.default_rng(seed); return rng.choice([0, 1], size=n, p=[0.85, 0.15])  # 1=lesionado
+    rng = np.random.default_rng(seed); return rng.choice([0, 1], size=n, p=[0.85, 0.15])
 
 def gen_costo_ficha(n, seed=None):
-    rng = np.random.default_rng(seed); return (np.exp(rng.normal(10, 0.5, size=n)) / 1e5).round(2)  # valor sintético
+    rng = np.random.default_rng(seed); return (np.exp(rng.normal(10, 0.5, size=n)) / 1e5).round(2)
 
 def gen_indice_rendimiento(n, seed=None):
-    rng = np.random.default_rng(seed)
-    # Índice que depende de minutos, velocidad, fc, goles y asistencias (se ajusta luego si faltan)
+    # índice dependiente de otras métricas (si faltan, se simulan internamente)
     minutos = gen_minutos(n, seed)
     vel = gen_velocidad(n, seed)
     fc = gen_fc(n, seed)
@@ -85,15 +81,12 @@ def gen_indice_rendimiento(n, seed=None):
     return np.round(100 * score / score.max(), 2)
 
 COLUMN_CATALOG = {
-    # Mixtas / temporales
     "fecha": {"tipo": "temporal", "gen": gen_fecha},
-    # Cualitativas
     "deporte": {"tipo": "categorica", "gen": gen_deporte},
     "equipo": {"tipo": "categorica", "gen": gen_equipo},
     "posicion": {"tipo": "categorica", "gen": gen_posicion},
     "genero": {"tipo": "categorica", "gen": gen_genero},
     "pais": {"tipo": "categorica", "gen": gen_pais},
-    # Cuantitativas
     "edad": {"tipo": "numerica", "gen": gen_edad},
     "minutos": {"tipo": "numerica", "gen": gen_minutos},
     "velocidad_kmh": {"tipo": "numerica", "gen": gen_velocidad},
@@ -105,8 +98,7 @@ COLUMN_CATALOG = {
     "indice_rendimiento": {"tipo": "numerica", "gen": gen_indice_rendimiento},
 }
 
-def tipo_columna(nombre):
-    return COLUMN_CATALOG[nombre]["tipo"]
+def tipo_columna(nombre): return COLUMN_CATALOG[nombre]["tipo"]
 
 # --------------------------
 # Sidebar: controles
@@ -125,7 +117,6 @@ cols_seleccionadas = st.sidebar.multiselect(
 
 generar = st.sidebar.button("🎲 Generar/Actualizar datos")
 
-# Guardamos en sesión
 if "df" not in st.session_state:
     st.session_state.df = pd.DataFrame()
 
@@ -133,11 +124,8 @@ def generar_df(n, cols, seed):
     df = pd.DataFrame()
     for c in cols:
         df[c] = COLUMN_CATALOG[c]["gen"](n, seed)
-    # Si no está 'fecha', creamos un índice temporal opcional para tendencias
     if "fecha" not in df.columns:
         df["fecha"] = gen_fecha(n, seed)
-    # Mezcla aleatoria consistente
-    rng = np.random.default_rng(seed)
     df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
     return df
 
@@ -147,7 +135,7 @@ if generar or st.session_state.df.empty:
 df = st.session_state.df.copy()
 
 # --------------------------
-# Filtros dinámicos (categorías)
+# Filtros dinámicos
 # --------------------------
 st.subheader("🔎 Filtros")
 cat_cols = [c for c in df.columns if tipo_columna(c) in ("categorica", "binaria")]
@@ -165,14 +153,12 @@ if aplicar_filtro:
     st.caption(f"Se aplicaron filtros. Filas restantes: **{len(df)}**")
 
 # --------------------------
-# Sección EDA rápida
+# EDA rápido
 # --------------------------
 st.subheader("📊 Resumen Rápido (EDA)")
 col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Filas", len(df))
-with col2:
-    st.metric("Columnas", len(df.columns))
+with col1: st.metric("Filas", len(df))
+with col2: st.metric("Columnas", len(df.columns))
 with col3:
     n_null = int(df.isna().sum().sum())
     st.metric("Valores faltantes", n_null)
@@ -201,10 +187,22 @@ csv = df.to_csv(index=False)
 st.download_button("💾 Descargar CSV", data=csv, file_name="datos_deportivos_sinteticos.csv", mime="text/csv")
 
 # --------------------------
+# Helper: línea OLS con numpy (sin statsmodels)
+# --------------------------
+def add_numpy_ols_line(fig, df_local, x_col, y_col):
+    if pd.api.types.is_numeric_dtype(df_local[x_col]) and pd.api.types.is_numeric_dtype(df_local[y_col]) and len(df_local) >= 2:
+        x_vals = df_local[x_col].to_numpy()
+        y_vals = df_local[y_col].to_numpy()
+        # Ajuste lineal y = m*x + b
+        m, b = np.polyfit(x_vals, y_vals, 1)
+        x_line = np.linspace(x_vals.min(), x_vals.max(), 100)
+        y_line = m * x_line + b
+        fig.add_scatter(x=x_line, y=y_line, mode="lines", name="Ajuste (numpy)")
+
+# --------------------------
 # Visualizaciones
 # --------------------------
 st.subheader("📈 Visualizaciones Interactivas")
-
 tab_line, tab_bar, tab_scatter, tab_pie, tab_hist, tab_box = st.tabs(
     ["Tendencia (línea)", "Barras", "Dispersión", "Pastel", "Histograma", "Caja (Boxplot)"]
 )
@@ -240,23 +238,27 @@ with tab_bar:
         fig.update_traces(texttemplate='%{text:.2s}', textposition='outside')
         st.plotly_chart(fig, use_container_width=True)
 
-# Dispersión
+# Dispersión (corregido: sin trendline='ols')
 with tab_scatter:
     st.markdown("Gráfico de **dispersión** para ver relaciones entre dos numéricas.")
     num_cols_sc = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     if len(num_cols_sc) < 2:
         st.warning("Se requieren al menos 2 columnas numéricas.")
     else:
-        x = st.selectbox("X (numérica)", options=num_cols_sc, index=0, key="scx")
-        y = st.selectbox("Y (numérica)", options=[c for c in num_cols_sc if c != x], index=0, key="scy")
-        color_opt = st.selectbox("Color (opcional)", options=["(ninguno)"] + [c for c in df.columns if c not in [x, y]], index=0, key="sccolor")
+        x_sc = st.selectbox("X (numérica)", options=num_cols_sc, index=0, key="scx")
+        y_sc = st.selectbox("Y (numérica)", options=[c for c in num_cols_sc if c != x_sc], index=0, key="scy")
+        color_opt = st.selectbox("Color (opcional)", options=["(ninguno)"] + [c for c in df.columns if c not in [x_sc, y_sc]], index=0, key="sccolor")
         size_opt = st.selectbox("Tamaño (opcional, numérica)", options=["(ninguno)"] + num_cols_sc, index=0, key="scsize")
+        add_trend = st.checkbox("Añadir recta OLS (numpy)", value=False)
+
         fig = px.scatter(
-            df, x=x, y=y,
+            df, x=x_sc, y=y_sc,
             color=None if color_opt == "(ninguno)" else color_opt,
             size=None if size_opt == "(ninguno)" else size_opt,
-            trendline="ols"
         )
+        if add_trend:
+            add_numpy_ols_line(fig, df, x_sc, y_sc)
+
         st.plotly_chart(fig, use_container_width=True)
 
 # Pastel
@@ -296,12 +298,12 @@ with tab_box:
     if not num_cols_b:
         st.warning("No hay variables numéricas.")
     else:
-        y = st.selectbox("Variable numérica", options=num_cols_b, index=0, key="boxy")
-        cat = st.selectbox("Categoría (opcional)", options=["(ninguna)"] + cat_cols_b, index=0, key="boxcat")
-        if cat == "(ninguna)":
-            fig = px.box(df, y=y, points="suspectedoutliers")
+        y_b = st.selectbox("Variable numérica", options=num_cols_b, index=0, key="boxy")
+        cat_b = st.selectbox("Categoría (opcional)", options=["(ninguna)"] + cat_cols_b, index=0, key="boxcat")
+        if cat_b == "(ninguna)":
+            fig = px.box(df, y=y_b, points="suspectedoutliers")
         else:
-            fig = px.box(df, x=cat, y=y, points="suspectedoutliers")
+            fig = px.box(df, x=cat_b, y=y_b, points="suspectedoutliers")
         st.plotly_chart(fig, use_container_width=True)
 
 # --------------------------
@@ -311,9 +313,8 @@ with st.expander("💡 Consejos de uso"):
     st.markdown("""
 - Usa **`fecha`** en el eje X para ver **tendencias**.
 - En **barras**, combina una **categoría** con una **métrica** y elige la **agregación**.
-- En **dispersión**, prueba **color** por `deporte` o `equipo` para descubrir patrones.
-- **Pastel** muestra la proporción de categorías (o ponderada por una métrica).
-- Ajusta **filtros** por `deporte`, `equipo`, `genero`, etc. para enfocarte en subgrupos.
-- Descarga el CSV para continuar tu análisis en R, Python o Excel.
+- En **dispersión**, prueba **color** por `deporte` o `equipo`; marca *Añadir recta OLS (numpy)* si deseas tendencia.
+- **Pastel** muestra proporciones por categoría (o ponderadas por una métrica).
+- Ajusta **filtros** por `deporte`, `equipo`, `genero`, etc. para subgrupos.
+- Descarga el **CSV** para continuar el análisis.
 """)
-
