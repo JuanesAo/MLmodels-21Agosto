@@ -16,7 +16,7 @@ st.caption("Carga tu CSV, limpia los datos y explora con visualizaciones interac
 # Utilidades de limpieza
 # =========================
 MOJIBAKE_FIXES = {
-    "Ã¡": "á", "Ã©": "é", "Ãí": "í", "Ã³": "ó", "Ãº": "ú",
+    "Ã¡": "á", "Ã©": "é", "Ã­": "í", "Ã³": "ó", "Ãº": "ú",
     "Ã±": "ñ", "Ã": "Á", "Ã‰": "É", "Ã": "Í", "Ã“": "Ó",
     "Ãš": "Ú", "Ã‘": "Ñ", "CafÃ©": "Café"
 }
@@ -118,8 +118,8 @@ present_cat = sugerida_categoria if sugerida_categoria in df.columns else None
 # Coerción numérica
 df = coerce_numeric(df, presentes_num)
 
-# Permitir convertir fecha si existe una columna llamada 'fecha' o similar
-posibles_fechas = [c for c in df.columns if c.lower() in ["fecha","date","dia","dia_medicion","timestamp"]]
+# Intento de conversión de fecha si existe
+posibles_fechas = [c for c in df.columns if c.lower() in ["fecha","date","dia","diam edicion".replace(" ", ""), "timestamp"]]
 for c in posibles_fechas:
     try:
         df[c] = pd.to_datetime(df[c], errors="coerce")
@@ -251,7 +251,7 @@ with tab_line:
             fig = px.line(df_sorted, x=x, y=y, color=None if color_opt == "(ninguno)" else color_opt, markers=True)
             st.plotly_chart(fig, use_container_width=True)
 
-# Barras
+# Barras (ARREGLADO: nombres consistentes)
 with tab_bar:
     st.markdown("Requiere 1 categórica y (opcional) 1 métrica.")
     cats = sel_cat_cols
@@ -261,18 +261,31 @@ with tab_bar:
     else:
         ccat = st.selectbox("Categoría", options=cats, index=0, key="bar_cat")
         agg_mode = st.selectbox("Agregación", options=["conteo","suma","media","mediana"], index=0)
+        df_bar = None
+
         if agg_mode == "conteo" or not nums:
-            df_bar = df_viz[ccat].value_counts().reset_index().rename(columns={"index": ccat, ccat: "valor"})
+            tmp = df_viz[ccat].value_counts(dropna=False).reset_index()
+            tmp.columns = ["categoria", "valor"]
+            df_bar = tmp
         else:
             mnum = st.selectbox("Métrica (numérica)", options=nums, index=0, key="bar_num")
             if agg_mode == "suma":
-                df_bar = df_viz.groupby(ccat)[mnum].sum().reset_index().rename(columns={mnum: "valor"})
+                tmp = df_viz.groupby(ccat, dropna=False)[mnum].sum().reset_index()
             elif agg_mode == "media":
-                df_bar = df_viz.groupby(ccat)[mnum].mean().reset_index().rename(columns={mnum: "valor"})
+                tmp = df_viz.groupby(ccat, dropna=False)[mnum].mean().reset_index()
             else:
-                df_bar = df_viz.groupby(ccat)[mnum].median().reset_index().rename(columns={mnum: "valor"})
-        fig = px.bar(df_bar, x=ccat, y="valor", text="valor")
-        st.plotly_chart(fig, use_container_width=True)
+                tmp = df_viz.groupby(ccat, dropna=False)[mnum].median().reset_index()
+            # Renombrar a nombres estándar
+            tmp = tmp.rename(columns={ccat: "categoria", mnum: "valor"})
+            df_bar = tmp
+
+        if df_bar is None or df_bar.empty:
+            st.warning("No hay datos para graficar.")
+        else:
+            # Convertimos NaN de categoría a string para evitar errores en Plotly
+            df_bar["categoria"] = df_bar["categoria"].astype(str)
+            fig = px.bar(df_bar, x="categoria", y="valor", text="valor")
+            st.plotly_chart(fig, use_container_width=True)
 
 # Dispersión
 with tab_scatter:
@@ -303,10 +316,12 @@ with tab_pie:
         ccat = st.selectbox("Categoría", options=cats, index=0, key="pie_cat")
         weight_opt = st.selectbox("Ponderar por (opcional, numérica)", options=["(conteo)"] + sel_num_cols, index=0, key="pie_weight")
         if weight_opt == "(conteo)":
-            df_pie = df_viz[ccat].value_counts().reset_index().rename(columns={"index": ccat, ccat: "valor"})
+            df_pie = df_viz[ccat].value_counts(dropna=False).reset_index()
+            df_pie.columns = ["categoria", "valor"]
         else:
-            df_pie = df_viz.groupby(ccat)[weight_opt].sum().reset_index().rename(columns={weight_opt: "valor"})
-        fig = px.pie(df_pie, names=ccat, values="valor", hole=0.2)
+            df_pie = df_viz.groupby(ccat, dropna=False)[weight_opt].sum().reset_index().rename(columns={ccat: "categoria", weight_opt: "valor"})
+        df_pie["categoria"] = df_pie["categoria"].astype(str)
+        fig = px.pie(df_pie, names="categoria", values="valor", hole=0.2)
         st.plotly_chart(fig, use_container_width=True)
 
 # Histograma
